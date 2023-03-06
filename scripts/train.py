@@ -18,6 +18,7 @@ import pandas as pd
 from sklearn.utils import class_weight
 import tensorflow_addons as tfa
 matplotlib.use('Agg', force=True)
+from tqdm.keras import TqdmCallback
 
 
 def get_map_list(filter_: str) -> list[str]:
@@ -86,67 +87,85 @@ def _generate_filtered_sample(filter_: str):
     }
 
     df = pd.read_csv(filter_list[filter_])
+    # df = df.sample(frac=1)
+    while True:
+        total = len(df)
+        yield_count = 0
+        
+        last_pdb_code = ""
+        last_stucture = None
+        last_neigbour_search = None
+        last_sugar_neigbour_search = None
+        last_phosphate_neigbour_search = None
+        last_base_neigbour_search = None
 
-    total = len(df)
-    yield_count = 0
+        for index, row in df.iterrows():
 
-    for index, row in df.iterrows():
+            pdb_code = row["PDB"]
 
-        pdb_code = row["PDB"]
-        structure = data.import_pdb(pdb_code)
+            if pdb_code == last_pdb_code: 
+                structure = last_stucture
+                neigbour_search, sugar_neigbour_search, phosphate_neigbour_search, base_neigbour_search = last_neigbour_search, last_sugar_neigbour_search, last_phosphate_neigbour_search, last_base_neigbour_search
+            else: 
+                structure = data.import_pdb(pdb_code)
+                neigbour_search, sugar_neigbour_search, phosphate_neigbour_search, base_neigbour_search = _initialise_neighbour_search(
+                structure)
+                last_pdb_code = pdb_code
+                last_stucture = structure
+                last_neigbour_search = neigbour_search
+                last_sugar_neigbour_search = sugar_neigbour_search
+                last_phosphate_neigbour_search = phosphate_neigbour_search
+                last_base_neigbour_search = base_neigbour_search
 
-        neigbour_search, sugar_neigbour_search, phosphate_neigbour_search, base_neigbour_search = _initialise_neighbour_search(
-            structure)
+            map_path = os.path.join("data/DNA_test_structures/maps", f"{pdb_code}_{filter_}.map")
+            map_ = gemmi.read_ccp4_map(map_path).grid
+            map_.normalize()
 
-        map_path = os.path.join("data/DNA_test_structures/maps", f"{pdb_code}_{filter_}.map")
-        map_ = gemmi.read_ccp4_map(map_path).grid
-        map_.normalize()
+            translation = [row["X"], row["Y"], row["Z"]]
 
-        translation = [row["X"], row["Y"], row["Z"]]
+            sub_array = np.array(map_.get_subarray(start=translation, shape=[32, 32, 32]))
+            output_grid = np.zeros((32, 32, 32, 4))
 
-        sub_array = np.array(map_.get_subarray(start=translation, shape=[32, 32, 32]))
-        output_grid = np.zeros((32, 32, 32, 4))
+            for i, x in enumerate(sub_array):
+                for j, y in enumerate(x):
+                    for k, z in enumerate(y):
+                        position = gemmi.Position(translation[0] + i, translation[1] + j, translation[2] + k)
 
-        for i, x in enumerate(sub_array):
-            for j, y in enumerate(x):
-                for k, z in enumerate(y):
-                    position = gemmi.Position(translation[0] + i, translation[1] + j, translation[2] + k)
+                        any_atom = neigbour_search.find_atoms(position, "\0", radius=params.ns_radius)
 
-                    any_atom = neigbour_search.find_atoms(position, "\0", radius=params.ns_radius)
+                        any_bases = base_neigbour_search.find_atoms(position, "\0", radius=params.ns_radius)
+                        any_sugars = sugar_neigbour_search.find_atoms(position, "\0", radius=params.ns_radius)
+                        any_phosphate = phosphate_neigbour_search.find_atoms(position, "\0", radius=params.ns_radius)
 
-                    any_bases = base_neigbour_search.find_atoms(position, "\0", radius=params.ns_radius)
-                    any_sugars = sugar_neigbour_search.find_atoms(position, "\0", radius=params.ns_radius)
-                    any_phosphate = phosphate_neigbour_search.find_atoms(position, "\0", radius=params.ns_radius)
+                        mask = 1 if len(any_atom) > 1 else 0
+                        base_mask = 1 if len(any_bases) > 1 else 0
+                        sugar_mask = 1 if len(any_sugars) > 1 else 0
+                        phosphate_mask = 1 if len(any_phosphate) > 1 else 0
 
-                    mask = 1 if len(any_atom) > 1 else 0
-                    base_mask = 1 if len(any_bases) > 1 else 0
-                    sugar_mask = 1 if len(any_sugars) > 1 else 0
-                    phosphate_mask = 1 if len(any_phosphate) > 1 else 0
+                        if mask == 1:
+                            # encoded_mask = [0, weights[1]*sugar_mask, weights[2]*phosphate_mask, weights[3]*base_mask]
+                            encoded_mask = [0, sugar_mask, phosphate_mask, base_mask]
+                        else:
+                            encoded_mask = [1, 0, 0, 0]
 
-                    if mask == 1:
-                        # encoded_mask = [0, weights[1]*sugar_mask, weights[2]*phosphate_mask, weights[3]*base_mask]
-                        encoded_mask = [0, sugar_mask, phosphate_mask, base_mask]
-                    else:
-                        encoded_mask = [1, 0, 0, 0]
+                        output_grid[i][j][k] = encoded_mask
 
-                    output_grid[i][j][k] = encoded_mask
+            mask = output_grid
+            original = sub_array.reshape((32, 32, 32, 1))
 
-        mask = output_grid
-        original = sub_array.reshape((32, 32, 32, 1))
+            if not np.isfinite(mask).any():
+                print(mask)
+                print(np.argwhere(np.isnan(mask)))
+                break
+            if not np.isfinite(original).any():
+                print(original)
+                break
+            # print(f"Yielding: {yield_count}/{total}")
+            # yield_count += 1
 
-        if not np.isfinite(mask).any():
-            print(mask)
-            print(np.argwhere(np.isnan(mask)))
-            break
-        if not np.isfinite(original).any():
-            print(original)
-            break
-        # print(f"Yielding: {yield_count}/{total}")
-        # yield_count += 1
+            # print(np.unique(mask, return_counts=True))
 
-        # print(np.unique(mask, return_counts=True))
-
-        yield original, mask
+            yield original, mask
 
 
 def _initialise_neighbour_search(structure: gemmi.Structure):
@@ -197,11 +216,10 @@ def train():
     output = tf.TensorSpec(shape=(32, 32, 32, 4), dtype=tf.int64)
 
     train_dataset = tf.data.Dataset.from_generator(lambda: _train_gen, output_signature=(input, output))
-    test_dataset = tf.data.Dataset.from_generator(lambda: _test_gen, output_signature=(input, output)).batch(
-        batch_size=batch_size)
-
+    test_dataset = tf.data.Dataset.from_generator(lambda: _test_gen, output_signature=(input, output))
     model = unet.model()
     # model = unet.test_model()
+    # model = unet.smaller_model()
     model.summary()
     #
     # loss = tf.keras.losses.BinaryFocalCrossentropy(gamma=2,
@@ -233,10 +251,10 @@ def train():
                                                     save_best_only=True, mode='min', save_weights_only=False)
 
     # train_dataset = train_dataset.cache("cached_data")
-    train_dataset = train_dataset.cache("cached_training_data").repeat(100).batch(
+    train_dataset = train_dataset.repeat(100).batch(
         batch_size=batch_size)
 
-    test_dataset = test_dataset.cache("cached_test_data").repeat(100).batch(
+    test_dataset = test_dataset.repeat(100).batch(
         batch_size=batch_size)
 
     #           NO ATOMS      SUGAR     PHOSPHATE      BASE
@@ -247,15 +265,15 @@ def train():
         3: 2.10228326
     }
 
-    callbacks_list = [checkpoint, reduce_lr_on_plat]
+    callbacks_list = [checkpoint, reduce_lr_on_plat, TqdmCallback(verbose=1)]
     model.fit(
         train_dataset,
-        epochs=100,
-        # steps_per_epoch=100,
+        epochs=10,
+        steps_per_epoch=15802,
         validation_data=test_dataset,
-        # validation_steps=100,
+        validation_steps=1000,
         callbacks=callbacks_list,
-        verbose=2,
+        verbose=0,
     )
 
     model.save("model_multiclass")

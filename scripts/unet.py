@@ -19,6 +19,58 @@ def test_model():
     return tf.keras.Model(inputs, inputs)
 
 
+def smaller_model():
+    inputs = x = tf.keras.Input(shape=(32, 32, 32, 1))
+    skip_list = []
+
+    filter_list = [1, 1, 1, 1, 1]
+    filter_list = [1]
+
+    for filters in filter_list:
+        x = tf.keras.layers.Conv3D(filters, **_downsampling_args)(x)
+        x = tfa.layers.InstanceNormalization(axis=-1,
+                                             center=True,
+                                             scale=True,
+                                             beta_initializer="random_uniform",
+                                             gamma_initializer="random_uniform")(x)
+        x = tf.keras.layers.ReLU()(x)
+        x = tf.keras.layers.Conv3D(filters, **_downsampling_args)(x)
+        x = tfa.layers.InstanceNormalization(axis=-1,
+                                             center=True,
+                                             scale=True,
+                                             beta_initializer="random_uniform",
+                                             gamma_initializer="random_uniform")(x)
+        x = tf.keras.layers.ReLU()(x)
+        skip_list.append(x)
+        x = tf.keras.layers.MaxPool3D(2)(x)
+
+    x = tf.keras.layers.Conv3D(1, 3, **_ARGS)(x)
+    x = tf.keras.layers.Conv3D(1, 3, **_ARGS)(x)
+
+    for filters in reversed(filter_list):
+        x = tf.keras.layers.Conv3DTranspose(filters, 3, 2, padding="same")(x)
+        x = tf.keras.layers.concatenate([x, skip_list.pop()])
+        x = tf.keras.layers.Conv3D(filters, 3, **_ARGS)(x)
+        x = tfa.layers.InstanceNormalization(axis=-1,
+                                             center=True,
+                                             scale=True,
+                                             beta_initializer="random_uniform",
+                                             gamma_initializer="random_uniform")(x)
+        x = tf.keras.layers.ReLU()(x)
+
+        x = tf.keras.layers.Conv3D(filters, 3, **_ARGS)(x)
+        x = tfa.layers.InstanceNormalization(axis=-1,
+                                             center=True,
+                                             scale=True,
+                                             beta_initializer="random_uniform",
+                                             gamma_initializer="random_uniform")(x)
+        x = tf.keras.layers.ReLU()(x)
+
+    outputs = tf.keras.layers.Conv3D(4, 3, padding="same", activation="softmax")(x)
+
+    return tf.keras.Model(inputs, outputs)
+
+
 def model():
     inputs = x = tf.keras.Input(shape=(32, 32, 32, 1))
     skip_list = []
