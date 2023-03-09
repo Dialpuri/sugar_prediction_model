@@ -10,3 +10,4 @@ class Parameters:
     pdb_list_file_path: str = "./data/DNA_test_structures/file_list_all.txt"
     ns_radius: int = 2
     maps_dir: str = "./data/DNA_test_structures/maps"
+    precompute_list_dir: str = "./data/DNA_test_structures/16x16x16_box_list.csv"
