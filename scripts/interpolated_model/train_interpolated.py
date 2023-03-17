@@ -14,15 +14,15 @@ import unet
 
 @dataclass
 class Params:
-    dataset_base_dir: str = "./output"
+    dataset_base_dir: str = "./dataset"
     shape: int = 32
 
 
 def sample_generator(dataset: str = "train"):
-    datasets = {"train": "./data/train_dataset.csv", "test": "./data/test_dataset.csv"}
+    datasets = {"train": "./data/train_dataset_calpha.csv", "test": "./data/test_dataset_calpha.csv"}
 
     df: pd.DataFrame = pd.read_csv(datasets[dataset])
-
+    df: pd.DataFrame = df.astype({'X':'int', 'Y': 'int', 'Z': 'int'})
     df_np: np.ndarray = df.to_numpy()
 
     while True:
@@ -142,7 +142,7 @@ def train():
     BATCH_SIZE: int = 8
     STEPS_PER_EPOCH: int = 10000
     VALIDATION_STEPS: int = 1000
-    name: str = "interpolated_model_2"
+    name: str = "interpolated_model_3"
 
     weight_path: str = f"models/{name}.best.hdf5"
 
@@ -160,7 +160,7 @@ def train():
     test_dataset = test_dataset.repeat(EPOCHS).batch(batch_size=BATCH_SIZE)
 
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir="./logs", histogram_freq=1
+        log_dir=f"./logs/{name}", histogram_freq=1
     )
 
     callbacks_list = [

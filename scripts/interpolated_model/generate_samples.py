@@ -9,7 +9,8 @@ from multiprocessing import Pool
 from dataclasses import dataclass
 import pandas as pd
 from sklearn.model_selection import train_test_split
- 
+import random
+
 
 @dataclass
 class Names:
@@ -118,7 +119,10 @@ def _initialise_neighbour_search(structure: gemmi.Structure):
     )
 
 
-def generate_c_alpha_positions(map_path: str, pdb_code: str, base_dir: str): 
+def generate_c_alpha_positions(map_path: str, pdb_code: str, sample_size: int ): 
+
+    # Need to find positions to add to the help file which will include position of high density but no sugars
+
     grid_spacing = 0.7
 
     input_grid = gemmi.read_ccp4_map(map_path).grid
@@ -143,7 +147,35 @@ def generate_c_alpha_positions(map_path: str, pdb_code: str, base_dir: str):
 
     cell = gemmi.UnitCell(size.x, size.y, size.z, 90, 90, 90)
 
+    c_alpha_search = gemmi.NeighborSearch(structure[0], structure.cell, 3)
 
+    c_alpha_atoms = ["CA", "CB"]
+
+    grid_sample_size = 32
+
+    for n_ch, chain in enumerate(structure[0]):
+            for n_res, res in enumerate(chain):
+                for n_atom, atom in enumerate(res):
+                    if atom.name in c_alpha_atoms:
+                        c_alpha_search.add_atom(atom, n_ch, n_res, n_atom)
+
+    potential_positions = []
+
+    for i in range(array.shape[0]):
+        for j in range(array.shape[1]):
+            for k in range(array.shape[2]):
+                index_pos = gemmi.Vec3(i, j, k)
+                position = gemmi.Position(transform.apply(index_pos))
+
+                any_protein_backbone = c_alpha_search.find_atoms(position, "\0", radius=3)
+
+                if len(any_protein_backbone) > 0: 
+                    translatable_position = (i-grid_sample_size/2, j-grid_sample_size/2, k-grid_sample_size/2)
+                    potential_positions.append(translatable_position)
+
+    if len(potential_positions) != 0: 
+        return random.sample(potential_positions, sample_size)
+    return []
 
 def generate_class_files(map_path: str, pdb_code: str, base_dir: str):
     grid_spacing = 0.7
@@ -281,7 +313,7 @@ def get_data_dirs(base_dir: str) -> List[Tuple[str, str]]:
 
 
 def map_worker(data: Tuple[str, str]):
-    output_dir = "./output"
+    output_dir = "./dataset"
     map_file, pdb_code = data
     generate_class_files(map_file, pdb_code, output_dir)
 
@@ -362,12 +394,12 @@ def generate_help_files():
 
 
 def combine_help_files():
-    base_dir = "./output"
+    base_dir = "./dataset"
 
     main_df = pd.DataFrame(columns=["PDB", "X", "Y", "Z"])
 
     for dir in os.scandir(base_dir):
-        context_path = os.path.join(dir.path, "validated_translations.csv")
+        context_path = os.path.join(dir.path, "validated_translations_calpha.csv")
 
         df = pd.read_csv(context_path)
 
@@ -377,22 +409,53 @@ def combine_help_files():
 
     print(main_df)
 
-    main_df.to_csv("./data/dataset_context.csv", index=False)
+    main_df.to_csv("./data/dataset_help_calpha.csv", index=False)
 
 
 def generate_test_train_split():
 
-    df = pd.read_csv("./data/dataset_context.csv")
+    df = pd.read_csv("./data/dataset_help_calpha.csv")
 
     train, test = train_test_split(df, test_size=0.2)
 
-    train.to_csv("./data/train_dataset.csv", index=False)
-    test.to_csv("./data/test_dataset.csv", index=False)
+    train.to_csv("./data/train_dataset_calpha.csv", index=False)
+    test.to_csv("./data/test_dataset_calpha.csv", index=False)
 
+
+def seeder(data: Tuple[str, str]): 
+    output_dir = "./dataset"
+    map_file, pdb_code = data
+
+    pdb_folder = os.path.join(output_dir, pdb_code)
+
+    validated_translation_file = os.path.join(pdb_folder, "validated_translations.csv")
+
+    df = pd.read_csv(validated_translation_file)
+
+    if len(df) < 10: 
+        sample_size = 2
+    else:
+        sample_size = len(df) // 10
+
+    samples = generate_c_alpha_positions(map_path=map_file, pdb_code=pdb_code, sample_size=sample_size)
+
+    output_df = pd.concat([df, pd.DataFrame(samples, columns=["X","Y","Z"])])
+    output_path = os.path.join(pdb_folder, "validated_translations_calpha.csv")
+    output_df.to_csv(output_path, index=False)
+
+def seed_c_alpha_positions(): 
+    map_list = get_map_list("./data/DNA_test_structures/maps_16")
+
+    with Pool() as pool:
+        r = list(tqdm(pool.imap(seeder, map_list), total=len(map_list)))
 
 def main():
 
-    generate_class_files("./data/DNA_test_structures/external_test_maps/1hr2.map", "1hr2", "./data/DNA_test_structures")
+    # seed_c_alpha_positions()
+    combine_help_files()
+    generate_test_train_split()
+    # generate_c_alpha_positions("data/DNA_test_structures/maps_16/1azp.map", "1azp", "./data/DNA_test_structures")
+    # generate_class_files("./data/DNA_test_structures/external_test_maps/1hr2.map", "1hr2", "./data/DNA_test_structures")
     # generate_test_train_split()
     # generate_help_files()
     # combine_help_files()
