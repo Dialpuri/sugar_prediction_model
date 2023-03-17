@@ -33,7 +33,7 @@ def get_bounding_box(grid: gemmi.FloatGrid) -> gemmi.PositionBox:
 
 
 def map_to_predicted_map(map_path: str):
-    model = tf.keras.models.load_model("models/interpolated_model_2", custom_objects={'sigmoid_focal_crossentropy': tfa.losses.sigmoid_focal_crossentropy})
+    model = tf.keras.models._load_model("models/interpolated_model_2", custom_objects={'sigmoid_focal_crossentropy': tfa.losses.sigmoid_focal_crossentropy})
 
     map_ = gemmi.read_ccp4_map(map_path).grid
 
@@ -90,7 +90,6 @@ def map_to_predicted_map(map_path: str):
     size_x = predicted_map.shape[0] * map_array.spacing[0]
     size_y = predicted_map.shape[1] * map_array.spacing[1]
     size_z = predicted_map.shape[2] * map_array.spacing[2]
-    array_cell = gemmi.UnitCell(size_x, size_y, size_z, 90, 90, 90)
 
     array_cell = gemmi.UnitCell(size_x, size_y, size_z, 90, 90, 90)
     array_grid = gemmi.FloatGrid(predicted_map, array_cell)
@@ -125,5 +124,8 @@ if __name__ == "__main__":
     # ccp4.update_ccp4_header()
     # ccp4.write_ccp4_map("data/DNA_test_structures/external_test_maps/1hr2.map")
 
-    map_to_predicted_map("data/DNA_test_structures/external_test_maps/1hr2.map")
+    # test_map = "data/DNA_test_structures/external_test_maps/1hr2.map"
+    test_map = "data/DNA_test_structures/maps_16/1azp.map"
+
+    map_to_predicted_map(test_map)
     # load_predicted_map()
