@@ -399,7 +399,7 @@ def combine_help_files():
     main_df = pd.DataFrame(columns=["PDB", "X", "Y", "Z"])
 
     for dir in os.scandir(base_dir):
-        context_path = os.path.join(dir.path, "validated_translations_calpha.csv")
+        context_path = os.path.join(dir.path, "validated_translations_calpha_2.csv")
 
         df = pd.read_csv(context_path)
 
@@ -409,17 +409,17 @@ def combine_help_files():
 
     print(main_df)
 
-    main_df.to_csv("./data/dataset_help_calpha.csv", index=False)
+    main_df.to_csv("./data/dataset_help_calpha_2.csv", index=False)
 
 
 def generate_test_train_split():
 
-    df = pd.read_csv("./data/dataset_help_calpha.csv")
+    df = pd.read_csv("./data/dataset_help_calpha_2.csv")
 
     train, test = train_test_split(df, test_size=0.2)
 
-    train.to_csv("./data/train_dataset_calpha.csv", index=False)
-    test.to_csv("./data/test_dataset_calpha.csv", index=False)
+    train.to_csv("./data/train_dataset_calpha_2.csv", index=False)
+    test.to_csv("./data/test_dataset_calpha_2.csv", index=False)
 
 
 def seeder(data: Tuple[str, str]): 
@@ -433,14 +433,14 @@ def seeder(data: Tuple[str, str]):
     df = pd.read_csv(validated_translation_file)
 
     if len(df) < 10: 
-        sample_size = 2
+        sample_size = 4
     else:
-        sample_size = len(df) // 10
+        sample_size = len(df) // 5
 
     samples = generate_c_alpha_positions(map_path=map_file, pdb_code=pdb_code, sample_size=sample_size)
 
     output_df = pd.concat([df, pd.DataFrame(samples, columns=["X","Y","Z"])])
-    output_path = os.path.join(pdb_folder, "validated_translations_calpha.csv")
+    output_path = os.path.join(pdb_folder, "validated_translations_calpha_2.csv")
     output_df.to_csv(output_path, index=False)
 
 def seed_c_alpha_positions(): 
@@ -451,7 +451,7 @@ def seed_c_alpha_positions():
 
 def main():
 
-    # seed_c_alpha_positions()
+    seed_c_alpha_positions()
     combine_help_files()
     generate_test_train_split()
     # generate_c_alpha_positions("data/DNA_test_structures/maps_16/1azp.map", "1azp", "./data/DNA_test_structures")

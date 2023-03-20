@@ -7,7 +7,7 @@ from tqdm import tqdm
 import train
 
 def map_to_predicted_map(map_path: str):
-    model = tf.keras.models.load_model("model_multiclass", custom_objects={'weighted_crossentropy': train.weighted_crossentropy})
+    model = tf.keras.models._load_model("model_multiclass", custom_objects={'weighted_crossentropy': train.weighted_crossentropy})
 
     map_ = gemmi.read_ccp4_map(map_path).grid
 

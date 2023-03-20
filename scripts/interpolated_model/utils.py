@@ -1,4 +1,10 @@
+import os
+import urllib.error
+from tqdm import tqdm
 import gemmi
+import wget
+import pandas as pd
+import shutil
 
 
 def get_bounding_box(grid: gemmi.FloatGrid) -> gemmi.PositionBox:
@@ -26,4 +32,66 @@ def get_bounding_box(grid: gemmi.FloatGrid) -> gemmi.PositionBox:
     box.minimum = gemmi.Position(min_x, min_y, min_z)
     box.maximum = gemmi.Position(max_x, max_y, max_z)
     return box
+
+
+def convert_map_to_mtz(mtz_file_path: str, pdb_code: str, output_dir: str):
+    try:
+        mtz = gemmi.read_mtz_file(mtz_file_path)
+    except (RuntimeError, ValueError) as e:
+        print(f"{pdb_code} raised {e}")
+        return
+
+    float_grid = mtz.transform_f_phi_to_map("FWT", "PHWT")
+    output_path = os.path.join(output_dir, f"{pdb_code}.map")
+    ccp4 = gemmi.Ccp4Map()
+    ccp4.grid = float_grid
+    ccp4.update_ccp4_header()
+    ccp4.write_ccp4_map(output_path)
+
+def pdb_list_to_map():
+
+    df = pd.read_csv("./data/DNA_test_structures/external_test_maps/pdb_list.txt")
+    pdb_list = df.columns
+    pdb_list = [x.lower() for x in pdb_list]
+
+    mtz_base_dir = "https://edmaps.rcsb.org/coefficients/PDBCODE.mtz"
+    pdb_base_dir = "https://files.rcsb.org/download/PDBCODE.pdb"
+
+    output_dir = "data/DNA_test_structures/external_test_maps"
+    pdb_output_dir = "data/DNA_test_structures/PDB_Files"
+
+    for pdb_code in tqdm(pdb_list):
+        mtz_url = mtz_base_dir.replace("PDBCODE", pdb_code)
+        mtz_dir = os.path.join(output_dir, "mtz")
+        map_dir = os.path.join(output_dir, "map")
+
+        if os.path.isfile(os.path.join(map_dir, f"{pdb_code}.map")):
+            continue
+
+        try:
+            file_name = wget.download(mtz_url, out=mtz_dir)
+        except urllib.error.HTTPError as e:
+            print(f"{pdb_code}.mtz could not be downloaded.")
+            continue
+
+        convert_map_to_mtz(file_name, pdb_code, map_dir)
+
+        pdb_url = pdb_base_dir.replace("PDBCODE", pdb_code)
+        try:
+            file_name = wget.download(pdb_url, out=pdb_output_dir)
+        except urllib.error.HTTPError as e:
+            print(f"{pdb_code}.pdb could not be downloaded.")
+            continue
+
+        split_path = file_name.split("/")
+        lower_case_pdb = split_path[-1].lower()
+        base_dir = split_path[:-1]
+        recombined_path = "/".join(base_dir) + "/" + lower_case_pdb
+
+        shutil.move(file_name, recombined_path)
+
+
+if __name__ == "__main__":
+    pdb_list_to_map()
+
 

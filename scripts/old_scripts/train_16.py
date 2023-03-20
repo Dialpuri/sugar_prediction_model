@@ -405,7 +405,7 @@ def train():
 def one_sample_prediction(): 
     os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
-    model = tf.keras.models.load_model("model_one_sample", custom_objects={'weighted_crossentropy': weighted_crossentropy})
+    model = tf.keras.models._load_model("model_one_sample", custom_objects={'weighted_crossentropy': weighted_crossentropy})
 
     _test_gen = _generate_filtered_sample("test")
     test_data = next(_test_gen)

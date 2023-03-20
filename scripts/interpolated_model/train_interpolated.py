@@ -19,10 +19,10 @@ class Params:
 
 
 def sample_generator(dataset: str = "train"):
-    datasets = {"train": "./data/train_dataset_calpha.csv", "test": "./data/test_dataset_calpha.csv"}
+    datasets = {"train": "./data/train_dataset_calpha_2.csv", "test": "./data/test_dataset_calpha_2.csv"}
 
     df: pd.DataFrame = pd.read_csv(datasets[dataset])
-    df: pd.DataFrame = df.astype({'X':'int', 'Y': 'int', 'Z': 'int'})
+    df: pd.DataFrame = df.astype({'X': 'int', 'Y': 'int', 'Z': 'int'})
     df_np: np.ndarray = df.to_numpy()
 
     while True:
@@ -142,7 +142,7 @@ def train():
     BATCH_SIZE: int = 8
     STEPS_PER_EPOCH: int = 10000
     VALIDATION_STEPS: int = 1000
-    name: str = "interpolated_model_3"
+    name: str = "interpolated_model_4"
 
     weight_path: str = f"models/{name}.best.hdf5"
 

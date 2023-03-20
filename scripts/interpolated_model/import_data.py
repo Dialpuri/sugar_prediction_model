@@ -11,11 +11,17 @@ import parameters
 def import_pdb(pdb_code: str) -> gemmi.Structure:
     params = parameters.Parameters()
     pdb_file_path = os.path.join(params.pdb_location, f"{pdb_code}.{params.pdb_file_ending}")
+
+    if not os.path.isfile(pdb_file_path):
+        return
+
     try:
         structure = gemmi.read_structure(pdb_file_path)
     except (RuntimeError, ValueError) as e:
         print(f"{pdb_code} raised {e}")
         return
+
+
     return structure
 
 
