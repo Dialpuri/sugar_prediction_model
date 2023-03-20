@@ -1,13 +1,13 @@
 import logging
 import os
-from typing import List
+from typing import List, Tuple
 import tensorflow as tf
 import tensorflow_addons as tfa
 import utils
 import import_data as data
 import numpy as np
 import gemmi
-
+from tqdm import tqdm
 
 class TestModel:
     CACHE_PATH = "cache"
@@ -17,10 +17,12 @@ class TestModel:
     def __init__(self, model_dir: str, use_cache: bool = True):
         self.use_cache: bool = use_cache
         self.model_dir: str = model_dir
+        self.model_name: str = model_dir.split("/")[-1]
 
         self.score = 0
         self.predicted_map: np.ndarray = None
         self.sugar_map: np.ndarray = None
+        self.pdb_code = ""
 
         self.na: float = 0
         self.nb: float = 0
@@ -28,16 +30,29 @@ class TestModel:
         self.translation_list: List[List[int, int, int]] = []
 
         self.model: tf.keras.Model = None
-        
+
         self.interpolated_grid: gemmi.FloatGrid = None
         self.raw_grid: gemmi.FloatGrid = None
         self.map: gemmi.Ccp4Map = None
         self.structure: gemmi.Structure = None
         self.transform: gemmi.Transform = None
 
+    def __repr__(self):
+        return f"Test Model({self.pdb_code}, {self.score}"
+
+    def __str__(self):
+        return f"Test Model of {self.pdb_code} with {self.score:.2f}"
+
+    def __le__(self, other):
+        return self.score <= other.score
+
+    def __ge__(self, other):
+        return self.score >= other.score
+
     def make_prediction(self, map_path: str, pdb_code: str):
 
-        cache_path = os.path.join(self.CACHE_PATH, pdb_code)
+        self.pdb_code = pdb_code
+        cache_path = os.path.join(self.CACHE_PATH, pdb_code, self.model_name)
 
         if not self.use_cache or not os.path.isdir(cache_path):
             logging.info("No cache found")
@@ -54,6 +69,18 @@ class TestModel:
             self._load_cache(cache_path)
             self.score = self._score_predicted_map()
 
+    def save_score(self, output_dir: str):
+        model_name = self.model_dir.split("/")[-1]
+        output_dir = os.path.join(output_dir, model_name)
+        if not os.path.isdir(output_dir):
+            os.mkdir(output_dir)
+
+        output_path = os.path.join(output_dir, f"{self.pdb_code}.csv")
+        with open(output_path, "w") as output_file:
+            output_file.write("PDB,Score\n")
+            output_file.write(f"{self.pdb_code},{self.score:.3f}")
+
+
     def _load_model(self):
         self.model = tf.keras.models.load_model(self.model_dir, custom_objects={
             'sigmoid_focal_crossentropy': tfa.losses.sigmoid_focal_crossentropy})
@@ -67,6 +94,8 @@ class TestModel:
 
     def _load_structure(self, pdb_code: str):
         self.structure = data.import_pdb(pdb_code)
+        if not self.structure:
+            raise RuntimeError
 
     def _load_cache(self, cache_path: str):
 
@@ -78,10 +107,10 @@ class TestModel:
         logging.info("Cache loaded")
 
     def _save_cache(self, cache_path: str):
-        predicted_map_path = os.path.join(cache_path, self.PREDICTED_NAME)
+        predicted_map_path = os.path.join(cache_path,  self.PREDICTED_NAME)
         sugar_map_path = os.path.join(cache_path, self.SUGAR_NAME)
 
-        os.mkdir(cache_path)
+        os.makedirs(cache_path)
 
         np.save(predicted_map_path, self.predicted_map)
         np.save(sugar_map_path, self.sugar_map)
@@ -119,7 +148,7 @@ class TestModel:
 
     def _predict(self):
         logging.info("Predicting map")
-        predicted_map = np.zeros(self.interpolated_grid.array.shape, np.float32)
+        predicted_map = np.zeros((int(32*self.na), int(32*self.nb), int(32*self.nc)), np.float32)
 
         for translation in self.translation_list:
             x, y, z = translation
@@ -129,13 +158,14 @@ class TestModel:
 
             predicted_sub = self.model.predict(sub_array).squeeze()
             arg_max = np.argmax(predicted_sub, axis=-1)
+
             predicted_map[x: x + 32, y: y + 32, z: z + 32] += arg_max
 
         self.predicted_map = predicted_map
 
     def _generate_sugar_map(self):
         logging.info("Generating sugar map")
-        interpolated_array: np.ndarray = self.interpolated_grid.array
+        interpolated_array: np.ndarray = self.predicted_map
 
         sugar_neigbour_search = self._initialise_sugar_search(self.structure)
         sugar_map = np.zeros(interpolated_array.shape, dtype=np.float32)
@@ -170,6 +200,8 @@ class TestModel:
         sugar_map: np.ndarray = self.sugar_map
         predicted_map: np.ndarray = self.predicted_map
 
+        assert sugar_map.shape == predicted_map.shape
+
         correct = 0
         wrong = 0
 
@@ -189,13 +221,37 @@ class TestModel:
         return score
 
 
+def get_test_list(test_dir: str) -> List[Tuple[str, str]]:
+    return [(x.path, x.name.strip(".map")) for x in os.scandir(test_dir)]
+
+
 def main():
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-    logging.basicConfig(level=logging.INFO, format='%(name)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO , format='%(asctime)s %(levelname)s - %(message)s')
 
-    test = TestModel("./models/interpolated_model_2", use_cache=True)
-    test.make_prediction("data/DNA_test_structures/external_test_maps/1hr2.map", "1hr2")
+    model_dir = "./models/interpolated_model_2"
+
+    test_list = get_test_list("data/DNA_test_structures/external_test_maps/map")
+
+    scores = []
+
+    for map_file, pdb_code in tqdm(test_list):
+        if len(pdb_code) != 4:
+            continue
+        test = TestModel(model_dir=model_dir, use_cache=True)
+
+        try:
+            test.make_prediction(map_path=map_file, pdb_code=pdb_code)
+        except RuntimeError:
+            continue
+
+        test.save_score("results")
+        scores.append(test.score)
+
+    scores = np.array(scores)
+
+    logging.info(f"Average Score {np.mean(scores)} += {np.std(scores)}")
 
 
 if __name__ == "__main__":
