@@ -63,16 +63,16 @@ def sample_generator(dataset: str = "train"):
                     start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
                 )
             )
-            sugar_array: np.ndarray = np.array(
-                sugar_map.get_subarray(
-                    start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
-                )
-            )
-            # phosphate_array: np.ndarray = np.array(
-            #     phosphate_map.get_subarray(
+            # sugar_array: np.ndarray = np.array(
+            #     sugar_map.get_subarray(
             #         start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
             #     )
             # )
+            phosphate_array: np.ndarray = np.array(
+                phosphate_map.get_subarray(
+                    start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
+                )
+            )
             # base_array: np.ndarray = np.array(
             #     base_map.get_subarray(
             #         start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
@@ -88,14 +88,15 @@ def sample_generator(dataset: str = "train"):
                 param.shape, param.shape, param.shape, 1
             )
 
-            sugar_array_hot = tf.one_hot(sugar_array, depth=2)
+            # sugar_array_hot = tf.one_hot(sugar_array, depth=2)
+            phosphate_array_hot = tf.one_hot(phosphate_array, depth=2)
             # print(sugar_array_hot)
 
             # output_yield = np.stack(
             #     (no_sugar_array, sugar_array, phosphate_array, base_array), axis=-1
             # )
 
-            yield density_yield, sugar_array_hot
+            yield density_yield, phosphate_array_hot
 
 
 def train():
@@ -138,11 +139,11 @@ def train():
         cooldown=5,
         min_lr=1e-7,
     )
-    EPOCHS: int = 100
-    BATCH_SIZE: int = 8
-    STEPS_PER_EPOCH: int = 10000
-    VALIDATION_STEPS: int = 1000
-    name: str = "interpolated_model_4"
+    epochs: int = 100
+    batch_size: int = 8
+    steps_per_epoch: int = 10000
+    validation_steps: int = 1000
+    name: str = "phosphate_model_1"
 
     weight_path: str = f"models/{name}.best.hdf5"
 
@@ -155,12 +156,12 @@ def train():
         save_weights_only=False,
     )
 
-    train_dataset = train_dataset.repeat(EPOCHS).batch(batch_size=BATCH_SIZE)
+    train_dataset = train_dataset.repeat(epochs).batch(batch_size=batch_size)
 
-    test_dataset = test_dataset.repeat(EPOCHS).batch(batch_size=BATCH_SIZE)
+    test_dataset = test_dataset.repeat(epochs).batch(batch_size=batch_size)
 
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=f"./logs/{name}", histogram_freq=1
+        log_dir=f"./logs/{name}", histogram_freq=1, profile_batch=(10, 30)
     )
 
     callbacks_list = [
@@ -172,10 +173,10 @@ def train():
 
     model.fit(
         train_dataset,
-        epochs=EPOCHS,
-        steps_per_epoch=STEPS_PER_EPOCH,
+        epochs=epochs,
+        steps_per_epoch=steps_per_epoch,
         validation_data=test_dataset,
-        validation_steps=VALIDATION_STEPS,
+        validation_steps=validation_steps,
         callbacks=callbacks_list,
         verbose=0,
         use_multiprocessing=True,
