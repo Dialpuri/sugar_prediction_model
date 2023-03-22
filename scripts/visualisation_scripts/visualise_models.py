@@ -1,6 +1,5 @@
 import os
 import random
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -50,13 +49,6 @@ def visualise_models():
 
     ax0.set_xticks(np.arange(0, len(samples)), pdb_list)
     ax1.set_xticks(np.arange(0, len(samples)), pdb_list)
-
-    # diff = {}
-    #
-    # for pdb in sampled_pdbs:
-    #     diff[pdb] = round(model_data[model_dirs[1]][pdb] - model_data[model_dirs[0]][pdb],4)
-    #
-    # plt.bar(diff.keys(), diff.values())
 
     ax0.set_ylabel("$R_{complete}$")
     ax1.set_ylabel("$\Delta R_{complete}$")

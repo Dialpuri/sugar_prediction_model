@@ -226,8 +226,6 @@ class TestModel:
         for translation in self.translation_list:
             x, y, z = translation
 
-            # logging.debug(f"{x},{y},{z} -> {x+32},{y+32},{z+32}")
-
             sub_array = np.array(
                 self.interpolated_grid.get_subarray(
                     start=translation, shape=[32, 32, 32]
