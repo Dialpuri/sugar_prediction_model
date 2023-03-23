@@ -10,10 +10,9 @@ import parameters
 
 def import_pdb(pdb_code: str) -> gemmi.Structure:
     params = parameters.Parameters()
-    pdb_file_path = os.path.join(params.pdb_location, f"{pdb_code}.{params.pdb_file_ending}")
-
+    pdb_file_path = os.path.join(params.pdb_location, f"{params.pdb_prefix}{pdb_code}.{params.pdb_file_ending}")
     if not os.path.isfile(pdb_file_path):
-        return
+        raise FileNotFoundError
 
     try:
         structure = gemmi.read_structure(pdb_file_path)

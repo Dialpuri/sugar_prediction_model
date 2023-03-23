@@ -1,11 +1,12 @@
 import os
+from typing import Tuple
 import urllib.error
 from tqdm import tqdm
 import gemmi
 import wget
 import pandas as pd
 import shutil
-
+import numpy as np
 
 def get_bounding_box(grid: gemmi.FloatGrid) -> gemmi.PositionBox:
     extent = gemmi.find_asu_brick(grid.spacegroup).get_extent()
@@ -33,6 +34,29 @@ def get_bounding_box(grid: gemmi.FloatGrid) -> gemmi.PositionBox:
     box.maximum = gemmi.Position(max_x, max_y, max_z)
     return box
 
+def load_and_interpolate_map(file_path: str, grid_spacing=0.7) -> Tuple[gemmi.FloatGrid, gemmi.Transform]:
+    map : gemmi.Ccp4Map = gemmi.read_ccp4_map(file_path)
+    grid = map.grid
+    grid.normalize()
+
+    box: gemmi.PositionBox = get_bounding_box(grid)
+    size: gemmi.Position = box.get_size()
+
+    num_x = int(size.x / grid_spacing)
+    num_y = int(size.y / grid_spacing)
+    num_z = int(size.z / grid_spacing)
+
+    array = np.zeros((num_x, num_y, num_z), dtype=np.float32)
+    scale = gemmi.Mat33(
+        [[grid_spacing, 0, 0], [0, grid_spacing, 0], [0, 0, grid_spacing]]
+    )
+
+    transform: gemmi.Transform = gemmi.Transform(scale, box.minimum)
+    grid.interpolate_values(array, transform)
+    cell: gemmi.UnitCell = gemmi.UnitCell(size.x, size.y, size.z, 90, 90, 90)
+    interpolated_grid: gemmi.FloatGrid = gemmi.FloatGrid(array, cell)
+
+    return interpolated_grid, transform
 
 def convert_map_to_mtz(mtz_file_path: str, pdb_code: str, output_dir: str):
     try:
