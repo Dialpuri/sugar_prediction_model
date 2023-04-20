@@ -2,9 +2,11 @@ from dataclasses import dataclass
 
 @dataclass
 class Parameters:
-    pdb_location: str = "./data/DNA_test_structures/PDB_Files"
+    # pdb_location: str = "./data/DNA_test_structures/PDB_Files"
+    pdb_location: str = "/vault/pdb/"
     mtz_location: str = "./data/DNA_test_structures/MTZ_Files"
-    pdb_file_ending: str = "pdb"
+    pdb_file_ending: str = "ent"
+    pdb_prefix: str = "pdb"
     mtz_file_ending: str = "mtz"
     map_out_dir: str = "./data/DNA_test_structures/maps"
     pdb_list_file_path: str = "./data/DNA_test_structures/file_list_all.txt"

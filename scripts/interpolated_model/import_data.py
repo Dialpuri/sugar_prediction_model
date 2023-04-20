@@ -10,10 +10,10 @@ import parameters
 
 def import_pdb(pdb_code: str) -> gemmi.Structure:
     params = parameters.Parameters()
-    pdb_file_path = os.path.join(params.pdb_location, f"{pdb_code}.{params.pdb_file_ending}")
-
+    pdb_file_path = os.path.join(params.pdb_location, f"{params.pdb_prefix}{pdb_code}.{params.pdb_file_ending}")
     if not os.path.isfile(pdb_file_path):
-        return
+        print(pdb_file_path)
+        raise FileNotFoundError
 
     try:
         structure = gemmi.read_structure(pdb_file_path)
@@ -78,4 +78,9 @@ def main():
 
 if __name__ == "__main__":
     params = parameters.Parameters()
-    main()
+    # main()
+    x = import_map_from_mtz("1egk")
+    ccp4 = gemmi.Ccp4Map()
+    ccp4.grid = x
+    ccp4.update_ccp4_header()
+    ccp4.write_ccp4_map("data/map/1egk.map")
