@@ -17,6 +17,12 @@ class Scores:
     false_positive: int = 0
     false_negative: int = 0
 
+    def print_attr(self): 
+        print(f"Scores: P-{self.positive} N-{self.negative} FP-{self.false_positive} FN-{self.false_negative}")
+
+    def __repr__(self):
+        return f"Scores: P-{self.positive} N-{self.negative} FP-{self.false_positive} FN-{self.false_negative}"
+
 class TestModel:
     cache_path = "cache"
     predicted_name = "predicted.npy"
@@ -62,7 +68,7 @@ class TestModel:
         return f"Test Model({self.pdb_code}, s: {self.sugar_score}, {self.sugar_false_score} - p: {self.phosphate_score}, {self.phosphate_false_score}"
 
     def __str__(self):
-        return f"""Test Model of {self.pdb_code} """
+        return f"""Test Model of {self.pdb_code} - {self.base_score.__repr__}"""
 
     def make_prediction(self, map_path: str, pdb_code: str, use_raw_values: bool = False):
         self.pdb_code = pdb_code
@@ -86,10 +92,11 @@ class TestModel:
             self.sugar_grid = self._reinterpolate_to_output(self.sugar_map)
             self.phosphate_grid = self._reinterpolate_to_output(self.phosphate_map)
 
-            # self.base_score = self._score_predicted_map()
+            self.base_score = self._score_predicted_map()
             self._save_cache(cache_path)
         else:
             self._load_cache(cache_path)
+            self._load_map(map_path=map_path)
 
             self.predicted_grid = self._reinterpolate_to_output(self.predicted_map)
             self.base_grid = self._reinterpolate_to_output(self.base_map)
@@ -98,13 +105,13 @@ class TestModel:
 
             self.base_score = self._score_predicted_map()
 
-    def save_score(self, output_dir: str):
+    def save_score(self, output_dir: str, suffix: str = ""):
         model_name = self.model_dir.split("/")[-1]
         output_dir = os.path.join(output_dir, model_name)
         if not os.path.isdir(output_dir):
             os.makedirs(output_dir)
 
-        output_path = os.path.join(output_dir, f"{self.pdb_code}.csv")
+        output_path = os.path.join(output_dir, f"{self.pdb_code}_{suffix}.csv")
         with open(output_path, "w") as output_file:
             output_file.write("PDB,Positive,Negative,FalsePositive,FalseNegative,X,Y,Z\n")
             output_file.write(
@@ -271,6 +278,7 @@ class TestModel:
 
     def _reinterpolate_to_output(self, grid_to_interp: np.ndarray) -> gemmi.FloatGrid: 
         logging.info("Reinterpolating array")
+        # logging.debug(np.unique(grid_to_interp, return_index=True))
         # Taken from https://github.com/paulsbond/densitydensenet/blob/main/predict.py - Paul Bond 
         dummy_structure = gemmi.Structure()
         dummy_structure.cell = self.raw_grid.unit_cell
@@ -284,13 +292,10 @@ class TestModel:
 
         grid_to_interp[np.isnan(grid_to_interp)] = 0
 
-
         array_cell = gemmi.UnitCell(size_x, size_y, size_z, 90, 90, 90)
         array_grid = gemmi.FloatGrid(grid_to_interp, array_cell)
 
-
         for point in output_grid.masked_asu():
-            # print(point)
             position = output_grid.point_to_position(point) - self.box_minimum
             point.value = array_grid.interpolate_value(position)
 
@@ -337,7 +342,7 @@ class TestModel:
 
         for translation in self.translation_list:
             x, y, z = translation
-            logging.debug(f"Predicting {x}, {y}, {z} -> {x+32}, {y+32}, {z+32}")
+            logging.debug(f"Predicting {x}, {y}, {z} -> {x+32}, {y+32}, {z+32}, where final shape is {predicted_map.shape}")
 
             sub_array = np.array(
                 self.interpolated_grid.get_subarray(
@@ -502,7 +507,7 @@ def get_test_list(test_dir: str) -> List[Tuple[str, str]]:
 
 
 def predict_new_model():
-    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     logging.basicConfig(
         level=logging.DEBUG, format="%(asctime)s %(levelname)s - %(message)s"
@@ -540,7 +545,7 @@ def test_pdb_files():
 
     model_path = "models/base_1.5A_model_1.best.hdf5"
     results_dir = "results"
-    map_folder = "data/test_structures/map"
+    map_folder = "data/map"
     
     for map_file in tqdm(os.scandir(map_folder), total=len(os.listdir(map_folder))):  
         pdb_code = map_file.name.split(".")[0]  
@@ -565,31 +570,25 @@ def main():
         level=logging.DEBUG, format="%(asctime)s %(levelname)s - %(message)s"
     )
 
-    model_paths = [
-        # "models/base_model_1",
-        # "models/interpolated_model_2",
-        # "models/phos_model_1"
-        "models/base_1.5A_model_1.best.hdf5"
-    ]
+    model_path = "models/base_1.5A_model_1.best.hdf5"
+    
     pdb_code = "1fxl"
     map_file = f"data/map/{pdb_code}.map"
     
-    for model in model_paths:    
-        test = TestModel(model_dir=model, use_cache=False)
-        try:
-            test.make_prediction(map_path=map_file, pdb_code=pdb_code)
-        except:
-            continue
-        # test.save_score("results")
-
-        test.save_maps(output_dir="predictions", original=True)
-        quit()
+    test = TestModel(model_dir=model_path, use_cache=False)
+    try:
+        test.make_prediction(map_path=map_file, pdb_code=pdb_code)
+    except:
+        return
+    # test.save_score("results")
+    print(test)
+    test.save_maps(output_dir="predictions", original=True)
 
 
 if __name__ == "__main__":
     # predict_new_model()
-    try:
-        main()
-    except Exception as e:
-        logging.critical(e)
-    # test_pdb_files()
+    # try:
+    #     main()
+    # except Exception as e:
+    #     logging.critical(e)
+    test_pdb_files()
