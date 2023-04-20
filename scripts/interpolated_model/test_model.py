@@ -17,13 +17,19 @@ class Scores:
     false_positive: int = 0
     false_negative: int = 0
 
+    def print_attr(self): 
+        print(f"Scores: P-{self.positive} N-{self.negative} FP-{self.false_positive} FN-{self.false_negative}")
+
+    def __repr__(self):
+        return f"Scores: P-{self.positive} N-{self.negative} FP-{self.false_positive} FN-{self.false_negative}"
+
 class TestModel:
     cache_path = "cache"
     predicted_name = "predicted.npy"
     sugar_name = "sugar.npy"
     base_name = "base.npy"
     phos_name = "phosphate.npy"
-
+    radius = 1.5
 
     def __init__(self, model_dir: str, use_cache: bool = True):
         self.use_cache: bool = use_cache
@@ -36,6 +42,11 @@ class TestModel:
         self.sugar_map: np.ndarray = None
         self.phosphate_map: np.ndarray = None
         self.base_map: np.ndarray = None
+
+        self.predicted_grid: gemmi.FloatGrid = None
+        self.sugar_grid: gemmi.FloatGrid = None
+        self.phosphate_grid: gemmi.FloatGrid = None
+        self.base_grid: gemmi.FloatGrid = None
 
         self.pdb_code = ""
 
@@ -51,12 +62,13 @@ class TestModel:
         self.map: gemmi.Ccp4Map = None
         self.structure: gemmi.Structure = None
         self.transform: gemmi.Transform = None
+        self.box_minimum: gemmi.PositionBox = None
 
     def __repr__(self):
         return f"Test Model({self.pdb_code}, s: {self.sugar_score}, {self.sugar_false_score} - p: {self.phosphate_score}, {self.phosphate_false_score}"
 
     def __str__(self):
-        return f"""Test Model of {self.pdb_code} """
+        return f"""Test Model of {self.pdb_code} - {self.base_score.__repr__}"""
 
     def make_prediction(self, map_path: str, pdb_code: str, use_raw_values: bool = False):
         self.pdb_code = pdb_code
@@ -75,37 +87,43 @@ class TestModel:
             self._generate_phosphate_map()
             self._generate_base_map()
 
+            self.predicted_grid = self._reinterpolate_to_output(self.predicted_map)
+            self.base_grid = self._reinterpolate_to_output(self.base_map)
+            self.sugar_grid = self._reinterpolate_to_output(self.sugar_map)
+            self.phosphate_grid = self._reinterpolate_to_output(self.phosphate_map)
+
             self.base_score = self._score_predicted_map()
             self._save_cache(cache_path)
         else:
             self._load_cache(cache_path)
+            self._load_map(map_path=map_path)
+
+            self.predicted_grid = self._reinterpolate_to_output(self.predicted_map)
+            self.base_grid = self._reinterpolate_to_output(self.base_map)
+            self.sugar_grid = self._reinterpolate_to_output(self.sugar_map)
+            self.phosphate_grid = self._reinterpolate_to_output(self.phosphate_map)
+
             self.base_score = self._score_predicted_map()
 
-    def save_score(self, output_dir: str):
+    def save_score(self, output_dir: str, suffix: str = ""):
         model_name = self.model_dir.split("/")[-1]
         output_dir = os.path.join(output_dir, model_name)
         if not os.path.isdir(output_dir):
             os.makedirs(output_dir)
 
-        output_path = os.path.join(output_dir, f"{self.pdb_code}.csv")
+        output_path = os.path.join(output_dir, f"{self.pdb_code}_{suffix}.csv")
         with open(output_path, "w") as output_file:
-            output_file.write("PDB,Positive,Negative,FalsePositive,FalseNegative\n")
+            output_file.write("PDB,Positive,Negative,FalsePositive,FalseNegative,X,Y,Z\n")
             output_file.write(
-                f"{self.pdb_code},{self.base_score.positive:.3f},{self.base_score.negative:.3f},{self.base_score.false_positive:.3f},{self.base_score.false_negative:.3f}"
+                f"{self.pdb_code},{self.base_score.positive:.3f},{self.base_score.negative:.3f},{self.base_score.false_positive:.3f},{self.base_score.false_negative:.3f},{self.predicted_map.shape[0]},{self.predicted_map.shape[1]},{self.predicted_map.shape[2]}"
             )
 
     def save_predicted_map(
         self, output_dir: str, grid_spacing: float = 0.7, original: bool = False
     ):
-        size_x = self.predicted_map.shape[0] * grid_spacing
-        size_y = self.predicted_map.shape[1] * grid_spacing
-        size_z = self.predicted_map.shape[2] * grid_spacing
-
-        array_cell = gemmi.UnitCell(size_x, size_y, size_z, 90, 90, 90)
-        array_grid = gemmi.FloatGrid(self.predicted_map, array_cell)
 
         ccp4 = gemmi.Ccp4Map()
-        ccp4.grid = array_grid
+        ccp4.grid = self.predicted_grid
         ccp4.update_ccp4_header()
 
         output_path = os.path.join(output_dir, f"{self.pdb_code}_predicted.map")
@@ -114,19 +132,9 @@ class TestModel:
     def save_sugar_map(
         self, output_dir: str, grid_spacing: float = 0.7, original: bool = False
     ):
-        size_x = self.sugar_map.shape[0] * grid_spacing
-        size_y = self.sugar_map.shape[1] * grid_spacing
-        size_z = self.sugar_map.shape[2] * grid_spacing
-
-        logging.debug(f"Saving sugar map size x,y,z : {size_x}, {size_y}, {size_z}")
-
-        array_cell = gemmi.UnitCell(size_x, size_y, size_z, 90, 90, 90)
-        array_grid = gemmi.FloatGrid(self.sugar_map, array_cell)
-
-        logging.debug(f"Array grid unit cell : {array_grid.unit_cell}")
 
         ccp4 = gemmi.Ccp4Map()
-        ccp4.grid = array_grid
+        ccp4.grid = self.sugar_grid
         ccp4.update_ccp4_header()
 
         output_path = os.path.join(output_dir, f"{self.pdb_code}_sugars.map")
@@ -135,19 +143,11 @@ class TestModel:
     def save_base_map(
         self, output_dir: str, grid_spacing: float = 0.7, original: bool = False
     ):
-        size_x = self.base_map.shape[0] * grid_spacing
-        size_y = self.base_map.shape[1] * grid_spacing
-        size_z = self.base_map.shape[2] * grid_spacing
 
-        logging.debug(f"Saving base map size x,y,z : {size_x}, {size_y}, {size_z}")
-
-        array_cell = gemmi.UnitCell(size_x, size_y, size_z, 90, 90, 90)
-        array_grid = gemmi.FloatGrid(self.base_map, array_cell)
-
-        logging.debug(f"Array grid unit cell : {array_grid.unit_cell}")
+        logging.debug(f"base_grid grid unit cell : {self.base_grid.unit_cell}")
 
         ccp4 = gemmi.Ccp4Map()
-        ccp4.grid = array_grid
+        ccp4.grid = self.base_grid
         ccp4.update_ccp4_header()
 
         output_path = os.path.join(output_dir, f"{self.pdb_code}_base.map")
@@ -156,19 +156,9 @@ class TestModel:
     def save_phosphate_map(
         self, output_dir: str, grid_spacing: float = 0.7, original: bool = False
     ):
-        size_x = self.phosphate_map.shape[0] * grid_spacing
-        size_y = self.phosphate_map.shape[1] * grid_spacing
-        size_z = self.phosphate_map.shape[2] * grid_spacing
-
-        logging.debug(f"Saving phosphate map size x,y,z : {size_x}, {size_y}, {size_z}")
-
-        array_cell = gemmi.UnitCell(size_x, size_y, size_z, 90, 90, 90)
-        array_grid = gemmi.FloatGrid(self.phosphate_map, array_cell)
-
-        logging.debug(f"Array grid unit cell : {array_grid.unit_cell}")
-
+     
         ccp4 = gemmi.Ccp4Map()
-        ccp4.grid = array_grid
+        ccp4.grid = self.phosphate_grid
         ccp4.update_ccp4_header()
 
         output_path = os.path.join(output_dir, f"{self.pdb_code}_phosphate.map")
@@ -184,6 +174,7 @@ class TestModel:
         ccp4.write_ccp4_map(output_path)
 
     def save_maps(self, output_dir: str, original=True):
+        logging.info("Saving maps")
         output_dir = os.path.join(output_dir, self.pdb_code, self.model_name)
         if not os.path.isdir(output_dir):
             os.makedirs(output_dir)
@@ -196,7 +187,7 @@ class TestModel:
 
     def _load_model(self):
 
-        logging.info(f"Loading model from dir: {self.model_dir}")
+        logging.info(f"Loading model from file/folder: {self.model_dir}")
 
         if os.path.isdir(self.model_dir):
             logging.info("Loading model from model folder")
@@ -279,8 +270,39 @@ class TestModel:
         self.raw_grid.interpolate_values(array, self.transform)
         cell: gemmi.UnitCell = gemmi.UnitCell(size.x, size.y, size.z, 90, 90, 90)
         self.interpolated_grid = gemmi.FloatGrid(array, cell)
+
+        self.box_minimum = box.minimum
+
         logging.debug(f"Interpolated grid (numpy) shape: {array.shape}")
         logging.debug(f"Interpolated grid (gemmi) shape: {self.interpolated_grid}")
+
+    def _reinterpolate_to_output(self, grid_to_interp: np.ndarray) -> gemmi.FloatGrid: 
+        logging.info("Reinterpolating array")
+        # logging.debug(np.unique(grid_to_interp, return_index=True))
+        # Taken from https://github.com/paulsbond/densitydensenet/blob/main/predict.py - Paul Bond 
+        dummy_structure = gemmi.Structure()
+        dummy_structure.cell = self.raw_grid.unit_cell
+        dummy_structure.spacegroup_hm = self.raw_grid.spacegroup.hm
+        output_grid = gemmi.FloatGrid()
+        output_grid.setup_from(dummy_structure, spacing=0.7)
+
+        size_x = grid_to_interp.shape[0] * 0.7
+        size_y = grid_to_interp.shape[1] * 0.7
+        size_z = grid_to_interp.shape[2] * 0.7
+
+        grid_to_interp[np.isnan(grid_to_interp)] = 0
+
+        array_cell = gemmi.UnitCell(size_x, size_y, size_z, 90, 90, 90)
+        array_grid = gemmi.FloatGrid(grid_to_interp, array_cell)
+
+        for point in output_grid.masked_asu():
+            position = output_grid.point_to_position(point) - self.box_minimum
+            point.value = array_grid.interpolate_value(position)
+
+        output_grid.symmetrize_max()
+
+
+        return output_grid
 
     def _calculate_translations(self, overlap: int = 32):
         logging.info("Calculating translations")
@@ -316,9 +338,11 @@ class TestModel:
             (int(32 * self.na) + 16, int(32 * self.nb) + 16, int(32 * self.nc) + 16), np.float32
         )
 
-        for translation in tqdm(self.translation_list, len(self.translation_list)):
+        logging.debug(f"Predicted map shape - {predicted_map.shape}")
+
+        for translation in self.translation_list:
             x, y, z = translation
-            # print(x, y, z)
+            logging.debug(f"Predicting {x}, {y}, {z} -> {x+32}, {y+32}, {z+32}, where final shape is {predicted_map.shape}")
 
             sub_array = np.array(
                 self.interpolated_grid.get_subarray(
@@ -344,7 +368,7 @@ class TestModel:
         logging.info("Generating sugar map")
         interpolated_array: np.ndarray = self.predicted_map
         sugar_atoms = ["C1'", "C2'", "C3'", "C4'", "C5'", "O2'", "O3'", "O4'", "O5'"]
-        sugar_neigbour_search = self._intitialise_atom_search(self.structure, sugar_atoms)
+        sugar_neigbour_search = self._intitialise_atom_search(self.structure, sugar_atoms, radius=self.radius)
         sugar_map = np.zeros(interpolated_array.shape, dtype=np.float32)
 
         for i in range(interpolated_array.shape[0]):
@@ -354,7 +378,7 @@ class TestModel:
                     position = gemmi.Position(self.transform.apply(index_pos))
 
                     any_sugars = sugar_neigbour_search.find_atoms(
-                        position, "\0", radius=3
+                        position, "\0", radius=self.radius
                     )
                     sugar_mask = 1.0 if len(any_sugars) > 1 else 0.0
                     sugar_map[i][j][k] = sugar_mask
@@ -368,7 +392,7 @@ class TestModel:
 
         phosphate_atoms = ["P", "OP1", "OP2", "O5'", "O3'"]
 
-        phosphate_neigbour_search = self._intitialise_atom_search(self.structure, phosphate_atoms)
+        phosphate_neigbour_search = self._intitialise_atom_search(self.structure, phosphate_atoms, radius=self.radius)
         phosphate_map = np.zeros(interpolated_array.shape, dtype=np.float32)
 
         for i in range(interpolated_array.shape[0]):
@@ -378,7 +402,7 @@ class TestModel:
                     position = gemmi.Position(self.transform.apply(index_pos))
 
                     any_sugars = phosphate_neigbour_search.find_atoms(
-                        position, "\0", radius=3
+                        position, "\0", radius=self.radius
                     )
                     sugar_mask = 1.0 if len(any_sugars) > 1 else 0.0
                     phosphate_map[i][j][k] = sugar_mask
@@ -413,7 +437,7 @@ class TestModel:
         "O6",
         ]   
 
-        base_neigbour_search = self._intitialise_atom_search(self.structure, base_atoms)
+        base_neigbour_search = self._intitialise_atom_search(self.structure, base_atoms, radius=self.radius)
         base_map = np.zeros(interpolated_array.shape, dtype=np.float32)
 
         for i in range(interpolated_array.shape[0]):
@@ -423,7 +447,7 @@ class TestModel:
                     position = gemmi.Position(self.transform.apply(index_pos))
 
                     any_sugars = base_neigbour_search.find_atoms(
-                        position, "\0", radius=3
+                        position, "\0", radius=self.radius
                     )
                     sugar_mask = 1.0 if len(any_sugars) > 1 else 0.0
                     base_map[i][j][k] = sugar_mask
@@ -433,9 +457,9 @@ class TestModel:
 
     
     def _intitialise_atom_search(
-        self, structure: gemmi.Structure, atom_list: List[str]
+        self, structure: gemmi.Structure, atom_list: List[str], radius: int = 3
     ) -> gemmi.NeighborSearch:
-        neigbour_search = gemmi.NeighborSearch(structure[0], structure.cell, 3)
+        neigbour_search = gemmi.NeighborSearch(structure[0], structure.cell, radius)
 
         for n_ch, chain in enumerate(structure[0]):
             for n_res, res in enumerate(chain):
@@ -475,8 +499,6 @@ class TestModel:
                         else:
                             base_scores.false_positive += 1
   
-
-
         return base_scores
 
 
@@ -485,7 +507,7 @@ def get_test_list(test_dir: str) -> List[Tuple[str, str]]:
 
 
 def predict_new_model():
-    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     logging.basicConfig(
         level=logging.DEBUG, format="%(asctime)s %(levelname)s - %(message)s"
@@ -515,49 +537,58 @@ def predict_new_model():
     logging.info(f"Average Score {np.mean(scores)} += {np.std(scores)}")
 
 def test_pdb_files(): 
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     logging.basicConfig(
         level=logging.CRITICAL, format="%(asctime)s %(levelname)s - %(message)s"
     )
 
     model_path = "models/base_1.5A_model_1.best.hdf5"
-    
+    results_dir = "results"
     map_folder = "data/map"
-    pdb_code = "1hr2"
     
-    for map_file in tqdm(os.scandir(map_folder), total=len(os.listdir(map_folder))):    
-        test = TestModel(model_dir=model_path, use_cache=True)
-        test.make_prediction(map_path=map_file, pdb_code=pdb_code)
-        test.save_score("results")
+    for map_file in tqdm(os.scandir(map_folder), total=len(os.listdir(map_folder))):  
+        pdb_code = map_file.name.split(".")[0]  
+
+        results_output_path = os.path.join(results_dir, model_path.split("/")[-1], f"{pdb_code}.csv")
+        if os.path.isfile(results_output_path):
+            continue
+        
+        logging.info(f"Testing - {pdb_code}")
+        test = TestModel(model_dir=model_path, use_cache=False)
+        try:
+            test.make_prediction(map_path=map_file.path, pdb_code=pdb_code)
+        except:
+            continue
+        test.save_score(results_dir)
 
         
 def main():
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
     logging.basicConfig(
         level=logging.DEBUG, format="%(asctime)s %(levelname)s - %(message)s"
     )
 
-    model_paths = [
-        # "models/base_model_1",
-        # "models/interpolated_model_2",
-        # "models/phos_model_1"
-        "models/base_1.5A_model_1.best.hdf5"
-    ]
-    map_file = "data/raw_maps/1hr2.map"
-    pdb_code = "1hr2"
+    model_path = "models/base_1.5A_model_1.best.hdf5"
     
-    for model in model_paths:    
-        test = TestModel(model_dir=model, use_cache=True)
+    pdb_code = "1fxl"
+    map_file = f"data/map/{pdb_code}.map"
+    
+    test = TestModel(model_dir=model_path, use_cache=False)
+    try:
         test.make_prediction(map_path=map_file, pdb_code=pdb_code)
-        test.save_score("results")
-
-        # test.save_maps(output_dir="predictions", original=True)
-        quit()
+    except:
+        return
+    # test.save_score("results")
+    print(test)
+    test.save_maps(output_dir="predictions", original=True)
 
 
 if __name__ == "__main__":
     # predict_new_model()
-    # main()
+    # try:
+    #     main()
+    # except Exception as e:
+    #     logging.critical(e)
     test_pdb_files()
