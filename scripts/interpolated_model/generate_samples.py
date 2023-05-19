@@ -69,12 +69,12 @@ def plot_interpolated_values():
     plt.savefig("./output/1ais_interp.png")
 
 
-def _initialise_neighbour_search(structure: gemmi.Structure):
+def _initialise_neighbour_search(structure: gemmi.Structure, radius: int = 3):
     neigbour_search = gemmi.NeighborSearch(structure[0], structure.cell, 1).populate()
 
-    sugar_neigbour_search = gemmi.NeighborSearch(structure[0], structure.cell, 3)
-    phosphate_neigbour_search = gemmi.NeighborSearch(structure[0], structure.cell, 3)
-    base_neigbour_search = gemmi.NeighborSearch(structure[0], structure.cell, 3)
+    sugar_neigbour_search = gemmi.NeighborSearch(structure[0], structure.cell, radius)
+    phosphate_neigbour_search = gemmi.NeighborSearch(structure[0], structure.cell, radius)
+    base_neigbour_search = gemmi.NeighborSearch(structure[0], structure.cell, radius)
 
     sugar_atoms = ["C1'", "C2'", "C3'", "C4'", "C5'", "O2'", "O3'", "O4'", "O5'"]
     phosphate_atoms = ["P", "OP1", "OP2", "O5'", "O3'"]
@@ -120,6 +120,7 @@ def _initialise_neighbour_search(structure: gemmi.Structure):
 
 
 def generate_c_alpha_positions(map_path: str, pdb_code: str, sample_size: int ): 
+
 
     # Need to find positions to add to the help file which will include position of high density but no sugars
 
@@ -177,7 +178,7 @@ def generate_c_alpha_positions(map_path: str, pdb_code: str, sample_size: int ):
         return random.sample(potential_positions, sample_size)
     return []
 
-def generate_class_files(map_path: str, pdb_code: str, base_dir: str):
+def generate_class_files(map_path: str, pdb_code: str, base_dir: str, radius: int = 3):
     grid_spacing = 0.7
 
     input_grid = gemmi.read_ccp4_map(map_path).grid
@@ -222,10 +223,10 @@ def generate_class_files(map_path: str, pdb_code: str, base_dir: str):
                 index_pos = gemmi.Vec3(i, j, k)
                 position = gemmi.Position(transform.apply(index_pos))
 
-                any_bases = base_neigbour_search.find_atoms(position, "\0", radius=3)
-                any_sugars = sugar_neigbour_search.find_atoms(position, "\0", radius=3)
+                any_bases = base_neigbour_search.find_atoms(position, "\0", radius=radius)
+                any_sugars = sugar_neigbour_search.find_atoms(position, "\0", radius=radius)
                 any_phosphate = phosphate_neigbour_search.find_atoms(
-                    position, "\0", radius=3
+                    position, "\0", radius=radius
                 )
 
                 base_mask = 1.0 if len(any_bases) > 1 else 0.0
@@ -313,13 +314,13 @@ def get_data_dirs(base_dir: str) -> List[Tuple[str, str]]:
 
 
 def map_worker(data: Tuple[str, str]):
-    output_dir = "./dataset"
+    output_dir = dataset_dir_name
     map_file, pdb_code = data
-    generate_class_files(map_file, pdb_code, output_dir)
+    generate_class_files(map_file, pdb_code, output_dir, radius=1)
 
 
 def generate_map_files():
-    map_list = get_map_list("./data/DNA_test_structures/maps_16")
+    map_list = get_map_list(map_file_dir)
 
     with Pool() as pool:
         r = list(tqdm(pool.imap(map_worker, map_list), total=len(map_list)))
@@ -362,13 +363,15 @@ def generate_candidate_position_list(
         if (sum / total_points) > threshold:
             candidate_translations.append(translation)
 
+    print(len(candidate_translations))
+
     return candidate_translations
 
 
 def help_file_worker(data_tuple: Tuple[str, str]):
     base_dir, pdb_code = data_tuple
 
-    candidate_translations = generate_candidate_position_list(base_dir, pdb_code, 0.15)
+    candidate_translations = generate_candidate_position_list(base_dir, pdb_code, 0.03)
 
     help_file_path = os.path.join(base_dir, "validated_translations.csv")
 
@@ -382,7 +385,7 @@ def help_file_worker(data_tuple: Tuple[str, str]):
 def generate_help_files():
     # Must be run after map files have been generated
 
-    data_directories = get_data_dirs("./output")
+    data_directories = get_data_dirs(dataset_dir_name)
 
     with Pool() as pool:
         r = list(
@@ -394,12 +397,12 @@ def generate_help_files():
 
 
 def combine_help_files():
-    base_dir = "./dataset"
+    base_dir = dataset_dir_name
 
     main_df = pd.DataFrame(columns=["PDB", "X", "Y", "Z"])
 
     for dir in os.scandir(base_dir):
-        context_path = os.path.join(dir.path, "validated_translations_calpha_2.csv")
+        context_path = os.path.join(dir.path, "validated_translations_calpha.csv")
 
         df = pd.read_csv(context_path)
 
@@ -409,26 +412,33 @@ def combine_help_files():
 
     print(main_df)
 
-    main_df.to_csv("./data/dataset_help_calpha_2.csv", index=False)
+    main_df.to_csv("./data/0.75A_rad/combined_dataset.csv", index=False)
 
 
 def generate_test_train_split():
 
-    df = pd.read_csv("./data/dataset_help_calpha_2.csv")
+    df = pd.read_csv("./data/0.75A_rad/combined_dataset.csv")
 
     train, test = train_test_split(df, test_size=0.2)
 
-    train.to_csv("./data/train_dataset_calpha_2.csv", index=False)
-    test.to_csv("./data/test_dataset_calpha_2.csv", index=False)
+    train.to_csv("./data/0.75A_rad/test.csv", index=False)
+    test.to_csv("./data/0.75A_rad/train.csv", index=False)
 
 
 def seeder(data: Tuple[str, str]): 
-    output_dir = "./dataset"
+    output_dir = dataset_dir_name
     map_file, pdb_code = data
 
     pdb_folder = os.path.join(output_dir, pdb_code)
+    output_path = os.path.join(pdb_folder, "validated_translations_calpha.csv")
+
+    if os.path.isfile(output_path):
+        return 
 
     validated_translation_file = os.path.join(pdb_folder, "validated_translations.csv")
+
+    if not os.path.isfile(validated_translation_file):
+        return
 
     df = pd.read_csv(validated_translation_file)
 
@@ -440,27 +450,42 @@ def seeder(data: Tuple[str, str]):
     samples = generate_c_alpha_positions(map_path=map_file, pdb_code=pdb_code, sample_size=sample_size)
 
     output_df = pd.concat([df, pd.DataFrame(samples, columns=["X","Y","Z"])])
-    output_path = os.path.join(pdb_folder, "validated_translations_calpha_2.csv")
     output_df.to_csv(output_path, index=False)
 
 def seed_c_alpha_positions(): 
-    map_list = get_map_list("./data/DNA_test_structures/maps_16")
+    map_list = get_map_list(map_file_dir)
 
     with Pool() as pool:
         r = list(tqdm(pool.imap(seeder, map_list), total=len(map_list)))
 
 def main():
 
-    seed_c_alpha_positions()
-    combine_help_files()
-    generate_test_train_split()
+    # generate_map_files()
+    # seed_c_alpha_positions()
+    # combine_help_files()
+    # generate_test_train_split()
     # generate_c_alpha_positions("data/DNA_test_structures/maps_16/1azp.map", "1azp", "./data/DNA_test_structures")
     # generate_class_files("./data/DNA_test_structures/external_test_maps/1hr2.map", "1hr2", "./data/DNA_test_structures")
     # generate_test_train_split()
+    # generate_map_files()
     # generate_help_files()
+    # seed_c_alpha_positions()
     # combine_help_files()
+    # generate_test_train_split()
+
+
+# ORDER
+    generate_map_files()
+    generate_help_files()
+    seed_c_alpha_positions()
+    combine_help_files()
+    generate_test_train_split()
+
 
 
 if __name__ == "__main__":
+
+    map_file_dir = "data/DNA_test_structures/maps_16"
+    dataset_dir_name = "dataset_0.75"
     names = Names()
     main()

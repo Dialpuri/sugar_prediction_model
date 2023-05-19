@@ -4,6 +4,7 @@ from dataclasses import dataclass
 class Parameters:
     # pdb_location: str = "./data/DNA_test_structures/PDB_Files"
     pdb_location: str = "/vault/pdb/"
+    # pdb_location: str = "data/pdb/"
     mtz_location: str = "./data/DNA_test_structures/MTZ_Files"
     pdb_file_ending: str = "ent"
     pdb_prefix: str = "pdb"

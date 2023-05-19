@@ -14,7 +14,7 @@ import enum
 
 @dataclass
 class Params:
-    dataset_base_dir: str = "./low_res_dataset"
+    dataset_base_dir: str = "./dataset_1.5"
     shape: int = 32
 
 class Types(enum.Enum): 
@@ -24,7 +24,7 @@ class Types(enum.Enum):
 
 
 def sample_generator(dataset: str = "train"):
-    datasets = {"train": "data/low_res_data/train.csv", "test": "data/low_res_data/test.csv"}
+    datasets = {"train": "./data/1.5A_radius/train_dataset_1.5_calpha_2.csv", "test": "./data/1.5A_radius/test_dataset_1.5_calpha_2.csv"}
 
     df: pd.DataFrame = pd.read_csv(datasets[dataset])
     df: pd.DataFrame = df.astype({'X': 'int', 'Y': 'int', 'Z': 'int'})
@@ -130,11 +130,14 @@ def train():
         cooldown=5,
         min_lr=1e-7,
     )
-    epochs: int = 100
+
+    es = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=6)
+
+    epochs: int = 25
     batch_size: int = 8
     steps_per_epoch: int = 10000
     validation_steps: int = 1000
-    name: str = "lr_base"
+    name: str = "sugar_model_1"
 
     weight_path: str = f"models/{name}.best.hdf5"
 
@@ -160,6 +163,7 @@ def train():
         reduce_lr_on_plat,
         TqdmCallback(verbose=2),
         tensorboard_callback,
+        es
     ]
 
     model.fit(
@@ -180,5 +184,5 @@ if __name__ == "__main__":
     names = generate_samples.Names()
     param = Params()
 
-    atom_type = Types.base
+    atom_type = Types.sugar
     train()

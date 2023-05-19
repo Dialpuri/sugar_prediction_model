@@ -3,96 +3,105 @@ import numpy as np
 import pandas as pd
 import gemmi
 from dataclasses import dataclass
-from typing import List
+
 import tensorflow as tf
 import tensorflow_addons as tfa
 from tqdm.keras import TqdmCallback
 
 import generate_samples as generate_samples
 import unet
-import enum
+
 
 @dataclass
 class Params:
-    dataset_base_dir: str = "./low_res_dataset"
+    dataset_base_dir: str = "./dataset_0.75"
     shape: int = 32
-
-class Types(enum.Enum): 
-    sugar: int = 1
-    phosphate: int = 2
-    base: int = 3
 
 
 def sample_generator(dataset: str = "train"):
-    datasets = {"train": "data/low_res_data/train.csv", "test": "data/low_res_data/test.csv"}
+    datasets = {"train": "./data/0.75A_rad/test.csv", "test": "./data/0.75A_rad/train.csv"}
 
     df: pd.DataFrame = pd.read_csv(datasets[dataset])
     df: pd.DataFrame = df.astype({'X': 'int', 'Y': 'int', 'Z': 'int'})
     df_np: np.ndarray = df.to_numpy()
-
-    def get_density(path: str, translation: List[int]) -> np.ndarray:
-
-        assert len(translation) == 3
-
-        map: gemmi.FloatGrid = gemmi.read_ccp4_map(path).grid
-        array: np.ndarray = np.array(
-            map.get_subarray(
-                start=translation, shape=[param.shape, param.shape, param.shape]
-            )
-        ) 
-        array = array.reshape(param.shape, param.shape, param.shape, 1)
-        return array
-
-    def get_atom_density(path: str, translation: List[int]) -> np.ndarray: 
-    
-        map: gemmi.FloatGrid = gemmi.read_ccp4_map(path).grid
-        array: np.ndarray = np.array(
-            map.get_subarray(
-                start=translation, shape=[param.shape, param.shape, param.shape]
-            )
-        ) 
-        hot_array = tf.one_hot(array, depth=2)
-        return hot_array
 
     while True:
         for candidate in df_np:
             assert len(candidate) == 4
 
             pdb_code: str = candidate[0]
-            translation: str = candidate[1:4]
-            
+            X: int = candidate[1]
+            Y: int = candidate[2]
+            Z: int = candidate[3]
+
             density_path: str = os.path.join(
                 param.dataset_base_dir, pdb_code, f"{pdb_code}{names.density_file}.map"
             )
-            raw_density = get_density(density_path, translation)
+            sugar_path: str = os.path.join(
+                param.dataset_base_dir, pdb_code, f"{pdb_code}{names.sugar_file}.map"
+            )
+            phosphate_path: str = os.path.join(
+                param.dataset_base_dir,
+                pdb_code,
+                f"{pdb_code}{names.phosphate_file}.map",
+            )
+            base_path: str = os.path.join(
+                param.dataset_base_dir, pdb_code, f"{pdb_code}{names.base_file}.map"
+            )
+            no_sugar_path: str = os.path.join(
+                param.dataset_base_dir, pdb_code, f"{pdb_code}{names.no_sugar_file}.map"
+            )
 
-            if atom_type == Types.base:
-                base_path: str = os.path.join(
-                    param.dataset_base_dir, pdb_code, f"{pdb_code}{names.base_file}.map"
-                )
-                base_array = get_atom_density(base_path, translation)
-                yield raw_density, base_array
+            density_map: gemmi.FloatGrid = gemmi.read_ccp4_map(density_path).grid
+            sugar_map: gemmi.FloatGrid = gemmi.read_ccp4_map(sugar_path).grid
+            phosphate_map: gemmi.FloatGrid = gemmi.read_ccp4_map(phosphate_path).grid
+            base_map: gemmi.FloatGrid = gemmi.read_ccp4_map(base_path).grid
+            no_sugar_map: gemmi.FloatGrid = gemmi.read_ccp4_map(no_sugar_path).grid
 
-            if atom_type == Types.sugar:
-                sugar_path: str = os.path.join(
-                    param.dataset_base_dir, pdb_code, f"{pdb_code}{names.sugar_file}.map"
+            density_array: np.ndarray = np.array(
+                density_map.get_subarray(
+                    start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
                 )
-                sugar_array = get_atom_density(sugar_path, translation)
-                yield raw_density, sugar_array
+            )
+            # sugar_array: np.ndarray = np.array(
+            #     sugar_map.get_subarray(
+            #         start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
+            #     )
+            # )
+            phosphate_array: np.ndarray = np.array(
+                phosphate_map.get_subarray(
+                    start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
+                )
+            )
+            # base_array: np.ndarray = np.array(
+            #     base_map.get_subarray(
+            #         start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
+            #     )
+            # )
+            # no_sugar_array: np.ndarray = np.array(
+            #     no_sugar_map.get_subarray(
+            #         start=[X, Y, Z], shape=[param.shape, param.shape, param.shape]
+            #     )
+            # )
 
-            if atom_type == Types.phosphate:
-                phosphate_path: str = os.path.join(
-                    param.dataset_base_dir, pdb_code, f"{pdb_code}{names.phosphate_file}.map"
-                )
-                phosphate_array = get_atom_density(phosphate_path, translation)
-                yield raw_density, phosphate_array
-            
-            
+            density_yield: np.ndarray = density_array.reshape(
+                param.shape, param.shape, param.shape, 1
+            )
+
+            # sugar_array_hot = tf.one_hot(sugar_array, depth=2)
+            phosphate_array_hot = tf.one_hot(phosphate_array, depth=2)
+            # print(sugar_array_hot)
+
+            # output_yield = np.stack(
+            #     (no_sugar_array, sugar_array, phosphate_array, base_array), axis=-1
+            # )
+
+            yield density_yield, phosphate_array_hot
+
+
 def train():
     num_threads: int = 128
     os.environ["OMP_NUM_THREADS"] = str(num_threads)
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
     tf.config.threading.set_inter_op_parallelism_threads(int(num_threads / 2))
     tf.config.threading.set_intra_op_parallelism_threads(int(num_threads / 2))
 
@@ -130,11 +139,11 @@ def train():
         cooldown=5,
         min_lr=1e-7,
     )
-    epochs: int = 100
+    epochs: int = 25
     batch_size: int = 8
     steps_per_epoch: int = 10000
     validation_steps: int = 1000
-    name: str = "lr_base"
+    name: str = "phos_0.75"
 
     weight_path: str = f"models/{name}.best.hdf5"
 
@@ -180,5 +189,4 @@ if __name__ == "__main__":
     names = generate_samples.Names()
     param = Params()
 
-    atom_type = Types.base
     train()
